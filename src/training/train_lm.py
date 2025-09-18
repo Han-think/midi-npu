@@ -1,33 +1,123 @@
-import os,json,torch,math,argparse,yaml
-from torch.utils.data import Dataset,DataLoader
-from transformers import GPT2Config,GPT2LMHeadModel,AdamW,get_cosine_schedule_with_warmup
+"""Minimal GPT-style language-model training loop."""
+from __future__ import annotations
 
-class DS(Dataset):
-    def __init__(s,p,seq=2048): s.items=[json.loads(l)['tokens'] for l in open(p,'r',encoding='utf-8')]; s.seq=seq
-    def __len__(s): return len(s.items)
-    def __getitem__(s,i):
-        x=s.items[i][:s.seq]; x=x if len(x)>2 else x+[0,0]
-        import torch; return torch.tensor(x[:-1]),torch.tensor(x[1:])
+import argparse
+import json
+from pathlib import Path
+from typing import Iterable, Tuple
 
-def coll(b):
-    import torch; i=[t[0] for t in b]; o=[t[1] for t in b]
-    return (torch.nn.utils.rnn.pad_sequence(i,True,0),
-            torch.nn.utils.rnn.pad_sequence(o,True,0))
+import torch
+import yaml
+from torch.utils.data import DataLoader, Dataset
+from transformers import (
+    AdamW,
+    GPT2Config,
+    GPT2LMHeadModel,
+    get_cosine_schedule_with_warmup,
+)
 
-def main(cfgp):
-    cfg=yaml.safe_load(open(cfgp)); vocab=json.load(open(cfg['model']['vocab_path']))
-    vs=max(vocab.values())+1
-    m=GPT2LMHeadModel(GPT2Config(vocab_size=vs,n_layer=cfg['model']['n_layer'],n_head=cfg['model']['n_head'],n_embd=cfg['model']['n_embd'],n_positions=cfg['train']['seq_len']))
-    ds=DS(cfg['data']['train_jsonl'],cfg['train']['seq_len']); dl=DataLoader(ds,batch_size=cfg['train']['batch_size'],shuffle=True,collate_fn=coll)
-    dev='cuda' if torch.cuda.is_available() else 'cpu'; m.to(dev); opt=AdamW(m.parameters(),lr=cfg['train']['lr'])
-    sch=get_cosine_schedule_with_warmup(opt,0,len(dl)*cfg['train']['epochs']); os.makedirs('checkpoints',exist_ok=True); m.train()
-    for e in range(cfg['train']['epochs']):
-        s=0;n=0
-        for x,y in dl:
-            x,y=x.to(dev),y.to(dev); out=m(input_ids=x,labels=y); loss=out.loss
-            opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(),1.0); opt.step(); sch.step()
-            s+=loss.item(); n+=1
-        print(f'epoch {e+1} loss={s/max(n,1):.4f}'); m.save_pretrained(f'checkpoints/epoch{e+1}')
 
-if __name__=='__main__':
-    ap=argparse.ArgumentParser(); ap.add_argument('--config',default='src/training/configs/default.yaml'); a=ap.parse_args(); main(a.config)
+class TokenDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
+    """A tiny JSONL-backed dataset returning input/target token tensors."""
+
+    def __init__(self, path: Path, seq_len: int) -> None:
+        with path.open("r", encoding="utf-8") as fh:
+            self.items = [json.loads(line)["tokens"] for line in fh]
+        if not self.items:
+            raise RuntimeError(f"Dataset at {path} is empty.")
+        self.seq_len = seq_len
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        tokens = self.items[index][: self.seq_len + 1]
+        if len(tokens) < 2:
+            tokens = tokens + [0] * (2 - len(tokens))
+        inputs = torch.tensor(tokens[:-1], dtype=torch.long)
+        targets = torch.tensor(tokens[1:], dtype=torch.long)
+        return inputs, targets
+
+
+def collate_batch(batch: Iterable[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
+    inputs, targets = zip(*batch)
+    inputs_padded = torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True, padding_value=0)
+    targets_padded = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=0)
+    return inputs_padded, targets_padded
+
+
+def train(config_path: Path) -> None:
+    with config_path.open("r", encoding="utf-8") as fh:
+        config = yaml.safe_load(fh)
+
+    vocab_path = Path(config["model"]["vocab_path"])
+    with vocab_path.open("r", encoding="utf-8") as fh:
+        vocab = json.load(fh)
+    vocab_size = max(vocab.values()) + 1
+
+    model = GPT2LMHeadModel(
+        GPT2Config(
+            vocab_size=vocab_size,
+            n_layer=config["model"]["n_layer"],
+            n_head=config["model"]["n_head"],
+            n_embd=config["model"]["n_embd"],
+            n_positions=config["train"]["seq_len"],
+        )
+    )
+
+    dataset = TokenDataset(Path(config["data"]["train_jsonl"]), config["train"]["seq_len"])
+    dataloader = DataLoader(
+        dataset,
+        batch_size=config["train"]["batch_size"],
+        shuffle=True,
+        collate_fn=collate_batch,
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    optimizer = AdamW(model.parameters(), lr=config["train"]["lr"])
+    total_steps = len(dataloader) * config["train"]["epochs"]
+    scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=total_steps)
+
+    torch.manual_seed(42)
+    model.train()
+
+    checkpoints_dir = Path("checkpoints")
+    checkpoints_dir.mkdir(exist_ok=True)
+
+    for epoch in range(config["train"]["epochs"]):
+        total_loss = 0.0
+        for inputs, targets in dataloader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            outputs = model(input_ids=inputs, labels=targets)
+            loss = outputs.loss
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / max(1, len(dataloader))
+        print(f"epoch {epoch + 1} loss={avg_loss:.4f}")
+        model.save_pretrained(checkpoints_dir / f"epoch{epoch + 1}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("src/training/configs/default.yaml"),
+        help="Path to the training configuration file.",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    train(args.config)

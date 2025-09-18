@@ -1,10 +1,36 @@
-import argparse,os,sys,subprocess
+"""Export checkpoints to OpenVINO IR using Optimum."""
+from __future__ import annotations
 
-def main(ckpt,out):
-    os.makedirs(out,exist_ok=True)
-    cmd=[sys.executable,'-m','optimum.exporters.openvino',f'--model={ckpt}','--task=text-generation','--weight-format=fp16','--ov_config=PERFORMANCE_HINT=LATENCY',out]
-    print('Running:',' '.join(cmd)); subprocess.run(cmd,check=True); print('Exported:',out)
+import argparse
+import subprocess
+import sys
+from pathlib import Path
 
-if __name__=='__main__':
-    ap=argparse.ArgumentParser(); ap.add_argument('--ckpt',required=True); ap.add_argument('--out',required=True)
-    a=ap.parse_args(); main(a.ckpt,a.out)
+
+def export_model(checkpoint: Path, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        "optimum.exporters.openvino",
+        f"--model={checkpoint}",
+        "--task=text-generation",
+        "--weight-format=fp16",
+        "--ov_config=PERFORMANCE_HINT=LATENCY",
+        str(output_dir),
+    ]
+    print("Running:", " ".join(command))
+    subprocess.run(command, check=True)
+    print("Exported:", output_dir)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Export a checkpoint to OpenVINO IR")
+    parser.add_argument("--ckpt", type=Path, required=True, help="Path to the saved checkpoint")
+    parser.add_argument("--out", type=Path, required=True, help="Directory where the IR will be written")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    export_model(args.ckpt, args.out)

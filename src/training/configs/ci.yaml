@@ -1,12 +1,12 @@
 train:
-  epochs: 2
-  batch_size: 4
+  epochs: 1
+  batch_size: 2
   lr: 2.0e-4
-  seq_len: 2048
+  seq_len: 512
 model:
-  n_layer: 6
-  n_head: 6
-  n_embd: 384
+  n_layer: 2
+  n_head: 2
+  n_embd: 128
   vocab_path: data/processed/vocab.json
 data:
   train_jsonl: data/processed/jsonl/train.jsonl
