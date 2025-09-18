@@ -11,6 +11,7 @@ jobs:
       OV_DEVICE: CPU
       SKIP_AUDIO: "1"
       PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ${{ github.workspace }}   # <-- src 루트를 PYTHONPATH에 추가
     steps:
       - uses: actions/checkout@v4
 
@@ -22,13 +23,13 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
+          sudo apt-get update && sudo apt-get install -y jq
 
       - name: Make tiny demo dataset
         run: |
           python - <<'PY'
           import os, json, pretty_midi as pm
           os.makedirs("data/raw/demo", exist_ok=True)
-          # tiny scale midi
           m=pm.PrettyMIDI()
           inst=pm.Instrument(program=0)
           t=0.0
@@ -42,13 +43,13 @@ jobs:
           PY
 
       - name: Prepare dataset
-        run: python src/training/prepare_dataset.py
+        run: python -m src.training.prepare_dataset
 
       - name: Train (ultra light)
-        run: python src/training/train_lm.py --config src/training/configs/ci.yaml
+        run: python -m src.training.train_lm --config src/training/configs/ci.yaml
 
       - name: Export OpenVINO IR
-        run: python src/export/export_ov.py --ckpt checkpoints/epoch1 --out exports/gpt_ov
+        run: python -m src.export.export_ov --ckpt checkpoints/epoch1 --out exports/gpt_ov
 
       - name: Launch API (background)
         run: |
