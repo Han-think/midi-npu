@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
-import os, io, base64, time, soundfile as sf, pretty_midi as pm
+import os, io, base64, time, glob, soundfile as sf, pretty_midi as pm
 from src.inference.ov_sampler import ov_generate, tokens_to_midi
 from src.render.sf2_renderer import render as render_sf2
 
@@ -38,9 +38,14 @@ def health():
 
 @app.post('/v1/midi/compose_full')
 def compose(req: ComposeReq):
-    xml='exports/gpt_ov/openvino_model.xml'
     vocab='data/processed/vocab.json'
-    if not os.path.exists(xml):   return {'error':'missing OV model. run export step'}
+    xml = os.environ.get('OV_XML_PATH') or 'exports/gpt_ov/openvino_model.xml'
+    if not os.path.exists(xml):
+        cands = glob.glob('exports/gpt_ov/**/*.xml', recursive=True) + glob.glob('exports/**/*.xml', recursive=True)
+        if cands:
+            xml = sorted(cands)[0]
+    if not os.path.exists(xml):
+        return {'error': f'missing OV model. looked for {xml} and exports/**/*.xml. run export step'}
     if not os.path.exists(vocab): return {'error':'missing vocab. run prepare step'}
 
     t0=time.time()
