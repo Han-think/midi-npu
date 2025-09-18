@@ -1,0 +1,9 @@
+mido
+pretty_midi
+pyfluidsynth
+soundfile
+numpy
+librosa
+fastapi
+uvicorn
+requests
