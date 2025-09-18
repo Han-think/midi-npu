@@ -1,0 +1,10 @@
+models/
+checkpoints/
+exports/
+data/
+.ov_cache/
+*.wav
+*.mp3
+*.mid
+__pycache__/
+.env
