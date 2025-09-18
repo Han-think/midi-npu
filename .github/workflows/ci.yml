@@ -11,7 +11,7 @@ jobs:
       OV_DEVICE: CPU
       SKIP_AUDIO: "1"
       PYTHONUNBUFFERED: "1"
-      PYTHONPATH: ${{ github.workspace }}   # <-- src 루트를 PYTHONPATH에 추가
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +56,6 @@ jobs:
           ls -R exports || true
           XML=$(ls exports/gpt_ov/*.xml 2>/dev/null | head -n1 || true)
           if [ -z "$XML" ]; then
-            # 폴더 구조가 다를 경우 전체에서 검색
             XML=$(ls exports/**/*.xml 2>/dev/null | head -n1 || true)
           fi
           if [ -z "$XML" ]; then

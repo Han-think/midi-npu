@@ -4,13 +4,11 @@ import os, io, base64, time, glob, soundfile as sf, pretty_midi as pm
 from src.inference.ov_sampler import ov_generate, tokens_to_midi
 from src.render.sf2_renderer import render as render_sf2
 
-app = FastAPI(title='midi-npu (one-pipeline)', version='0.3.0')
-
+app = FastAPI(title='midi-npu (one-pipeline)', version='0.3.1')
 
 class Section(BaseModel):
     name: str
     duration: float = Field(..., gt=0)
-
 
 class ComposeReq(BaseModel):
     base_style: str = 'rock'
@@ -21,11 +19,15 @@ class ComposeReq(BaseModel):
     with_vocal: bool = False
     max_tokens: int = 512
 
-
 class MGReq(BaseModel):
     prompt: str
     duration: int = 8
 
+def _find_xml():
+    xml = os.environ.get('OV_XML_PATH') or 'exports/gpt_ov/openvino_model.xml'
+    if os.path.exists(xml): return xml
+    cands = glob.glob('exports/gpt_ov/*.xml') + glob.glob('exports/**/*.xml', recursive=True)
+    return cands[0] if cands else xml
 
 @app.get('/health')
 def health():
@@ -35,18 +37,14 @@ def health():
     except Exception as e:
         return {'status':'degraded','error': str(e)}
 
-
 @app.post('/v1/midi/compose_full')
 def compose(req: ComposeReq):
     vocab='data/processed/vocab.json'
-    xml = os.environ.get('OV_XML_PATH') or 'exports/gpt_ov/openvino_model.xml'
-    if not os.path.exists(xml):
-        cands = glob.glob('exports/gpt_ov/**/*.xml', recursive=True) + glob.glob('exports/**/*.xml', recursive=True)
-        if cands:
-            xml = sorted(cands)[0]
+    xml=_find_xml()
+    if not os.path.exists(vocab):
+        return {'error':'missing vocab. run prepare step'}
     if not os.path.exists(xml):
         return {'error': f'missing OV model. looked for {xml} and exports/**/*.xml. run export step'}
-    if not os.path.exists(vocab): return {'error':'missing vocab. run prepare step'}
 
     t0=time.time()
     toks, vc = ov_generate(xml, vocab, max_tokens=req.max_tokens)
@@ -71,7 +69,6 @@ def compose(req: ComposeReq):
     buf = io.BytesIO(); sf.write(buf, audio, 32000, format='WAV')
     return {'format':'wav','sample_rate':32000,'b64':base64.b64encode(buf.getvalue()).decode(),
             'offsets':offsets,'elapsed_ms':int((time.time()-t0)*1000)}
-
 
 @app.post('/v1/audio/musicgen')
 def musicgen(req: MGReq):
