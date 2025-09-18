@@ -51,6 +51,20 @@ jobs:
       - name: Export OpenVINO IR
         run: python -m src.export.export_ov --ckpt checkpoints/epoch1 --out exports/gpt_ov
 
+      - name: Verify export artefacts
+        run: |
+          ls -R exports || true
+          XML=$(ls exports/gpt_ov/*.xml 2>/dev/null | head -n1 || true)
+          if [ -z "$XML" ]; then
+            # 폴더 구조가 다를 경우 전체에서 검색
+            XML=$(ls exports/**/*.xml 2>/dev/null | head -n1 || true)
+          fi
+          if [ -z "$XML" ]; then
+            echo "No OpenVINO XML found under exports/"; exit 1
+          fi
+          echo "Found XML: $XML"
+          echo "OV_XML_PATH=$XML" >> $GITHUB_ENV
+
       - name: Launch API (background)
         run: |
           python -m uvicorn src.api.server:app --host 127.0.0.1 --port 9009 &
