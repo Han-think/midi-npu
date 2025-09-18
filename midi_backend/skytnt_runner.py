@@ -1,4 +1,5 @@
 """Wrapper around the (mocked) skytnt MIDI composition model."""
+
 from __future__ import annotations
 
 import logging
@@ -117,7 +118,10 @@ class SkytntRunner:
                 if beat % 2 == 0:
                     drums.notes.append(
                         pretty_midi.Note(
-                            velocity=kick_velocity, pitch=36, start=beat_time, end=beat_time + 0.2
+                            velocity=kick_velocity,
+                            pitch=36,
+                            start=beat_time,
+                            end=beat_time + 0.2,
                         )
                     )
                 else:
@@ -173,7 +177,9 @@ class SkytntRunner:
             for step in range(8):
                 start = bar_start + step * (seconds_per_beat / 2.0)
                 end = start + seconds_per_beat * 0.45
-                pitch = clamp_midi_range(lead_degrees[step] + random.choice([-12, 0, 12]), 60, 96)
+                pitch = clamp_midi_range(
+                    lead_degrees[step] + random.choice([-12, 0, 12]), 60, 96
+                )
                 lead.notes.append(
                     pretty_midi.Note(
                         velocity=80,
@@ -185,7 +191,7 @@ class SkytntRunner:
 
         midi.instruments.extend([drums, bass, chords, lead])
         midi.time_signature_changes.append(pretty_midi.TimeSignature(4, 4, 0.0))
-        key_number = (tonic % 12)
+        key_number = tonic % 12
         if mode == "minor":
             key_number += 12
         midi.key_signature_changes.append(pretty_midi.KeySignature(key_number, 0.0))
@@ -212,4 +218,3 @@ def run_section(
     """Convenience wrapper calling the singleton runner."""
 
     return RUNNER.run_section(style, key, bpm, tag, seed=seed, duration=duration)
-

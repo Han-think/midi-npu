@@ -1,55 +1,104 @@
-import os, json, glob
+import glob
+import json
+import os
+from typing import Iterable
+
 import pretty_midi as pm
-from src.tokenizers.skytnt import section_prefix, midi_to_events, build_vocab, events_to_ids
 
-RAW = 'data/raw'
-OUT = 'data/processed'
-JSONL = f'{OUT}/jsonl/train.jsonl'
-VOCAB = f'{OUT}/vocab.json'
+from src.tokenizers.skytnt import (
+    build_vocab,
+    events_to_ids,
+    midi_to_events,
+    section_prefix,
+)
 
-
-def slice_midi(m: pm.PrettyMIDI, s: float, e: float) -> pm.PrettyMIDI:
-    out = pm.PrettyMIDI(resolution=m.resolution)
-    for inst in m.instruments:
-        ni = pm.Instrument(program=inst.program, is_drum=inst.is_drum, name=inst.name)
-        for n in inst.notes:
-            if n.start >= e or n.end <= s: continue
-            ns = max(n.start, s) - s
-            ne = max(min(n.end, e) - s, ns + 1e-4)
-            ni.notes.append(pm.Note(velocity=n.velocity, pitch=n.pitch, start=ns, end=ne))
-        if ni.notes: out.instruments.append(ni)
-    return out
+RAW = "data/raw"
+OUT = "data/processed"
+JSONL = f"{OUT}/jsonl/train.jsonl"
+VOCAB = f"{OUT}/vocab.json"
 
 
-def main():
+def slice_midi(midi: pm.PrettyMIDI, start: float, end: float) -> pm.PrettyMIDI:
+    sliced = pm.PrettyMIDI(resolution=midi.resolution)
+    for instrument in midi.instruments:
+        new_inst = pm.Instrument(
+            program=instrument.program,
+            is_drum=instrument.is_drum,
+            name=instrument.name,
+        )
+        for note in instrument.notes:
+            if note.start >= end or note.end <= start:
+                continue
+            note_start = max(note.start, start) - start
+            note_end = max(min(note.end, end) - start, note_start + 1e-4)
+            new_inst.notes.append(
+                pm.Note(
+                    velocity=note.velocity,
+                    pitch=note.pitch,
+                    start=note_start,
+                    end=note_end,
+                )
+            )
+        if new_inst.notes:
+            sliced.instruments.append(new_inst)
+    return sliced
+
+
+def _load_sections(path: str) -> Iterable[dict[str, float]] | None:
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def main() -> None:
     os.makedirs(os.path.dirname(JSONL), exist_ok=True)
-    samples, metas = [], []
-    for song_dir in glob.glob(f'{RAW}/*'):
-        if not os.path.isdir(song_dir): continue
-        mids = glob.glob(f'{song_dir}/*.mid')
-        if not mids: continue
-        sp = f'{song_dir}/sections.json'
-        sections = json.load(open(sp,'r',encoding='utf-8')) if os.path.exists(sp) else None
-        bpm = 120; key = 'C'
-        for mp in mids:
-            m = pm.PrettyMIDI(mp)
+    samples: list[list[str]] = []
+    metas: list[dict[str, str]] = []
+
+    for song_dir in glob.glob(f"{RAW}/*"):
+        if not os.path.isdir(song_dir):
+            continue
+
+        midi_paths = glob.glob(f"{song_dir}/*.mid")
+        if not midi_paths:
+            continue
+
+        sections = _load_sections(f"{song_dir}/sections.json")
+        bpm = 120
+        key = "C"
+        for midi_path in midi_paths:
+            midi = pm.PrettyMIDI(midi_path)
             if sections:
-                for sec in sections:
-                    sm = slice_midi(m, float(sec['start']), float(sec['end']))
-                    ev = section_prefix(sec['name'], bpm, key) + midi_to_events(sm)
-                    samples.append(ev); metas.append({'song':os.path.basename(song_dir),'section':sec['name']})
+                for section in sections:
+                    sliced = slice_midi(
+                        midi, float(section["start"]), float(section["end"])
+                    )
+                    events = section_prefix(section["name"], bpm, key) + midi_to_events(
+                        sliced
+                    )
+                    samples.append(events)
+                    metas.append(
+                        {"song": os.path.basename(song_dir), "section": section["name"]}
+                    )
             else:
-                ev = section_prefix('full', bpm, key) + midi_to_events(m)
-                samples.append(ev); metas.append({'song':os.path.basename(song_dir),'section':'full'})
+                events = section_prefix("full", bpm, key) + midi_to_events(midi)
+                samples.append(events)
+                metas.append({"song": os.path.basename(song_dir), "section": "full"})
+
     vocab = build_vocab(samples)
     os.makedirs(OUT, exist_ok=True)
-    json.dump(vocab, open(VOCAB,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
+    with open(VOCAB, "w", encoding="utf-8") as handle:
+        json.dump(vocab, handle, ensure_ascii=False, indent=2)
+
     os.makedirs(os.path.dirname(JSONL), exist_ok=True)
-    with open(JSONL, 'w', encoding='utf-8') as f:
-        for ev, meta in zip(samples, metas):
-            f.write(json.dumps({'tokens': events_to_ids(ev, vocab), 'meta': meta}, ensure_ascii=False) + '\n')
-    print('wrote', JSONL, 'vocab', len(vocab), 'samples', len(samples))
+    with open(JSONL, "w", encoding="utf-8") as handle:
+        for events, meta in zip(samples, metas):
+            payload = {"tokens": events_to_ids(events, vocab), "meta": meta}
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    print("wrote", JSONL, "vocab", len(vocab), "samples", len(samples))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

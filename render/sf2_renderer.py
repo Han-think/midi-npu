@@ -1,4 +1,5 @@
 """SoundFont based MIDI renderer."""
+
 from __future__ import annotations
 
 import copy
@@ -53,4 +54,3 @@ def render(midi: pretty_midi.PrettyMIDI, sr: int = 32000) -> np.ndarray:
         return audio
     # pretty_midi returns shape (n, ) or (n, channels). ensure float32
     return audio.astype(np.float32)
-

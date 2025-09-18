@@ -1,4 +1,5 @@
 """Rule-based lead vocal melody generator."""
+
 from __future__ import annotations
 
 import logging
@@ -81,11 +82,12 @@ def melody_from_lyrics(
 
     melody.instruments.append(vocal)
     melody.time_signature_changes.append(pretty_midi.TimeSignature(4, 4, 0.0))
-    melody.key_signature_changes.append(pretty_midi.KeySignature((tonic % 12) + (12 if mode == "minor" else 0), 0.0))
+    melody.key_signature_changes.append(
+        pretty_midi.KeySignature((tonic % 12) + (12 if mode == "minor" else 0), 0.0)
+    )
     LOGGER.info(
         "Generated vocal melody with %d notes spanning %.2f seconds",
         len(vocal.notes),
         duration_seconds,
     )
     return melody
-

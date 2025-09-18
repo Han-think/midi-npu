@@ -1,4 +1,5 @@
 """FastAPI server exposing the full song composition pipeline."""
+
 from __future__ import annotations
 
 import base64
@@ -79,7 +80,9 @@ def health() -> Dict[str, str]:
 @app.post("/v1/audio/compose_full")
 def compose_full(request: ComposeRequest):
     if not request.sections:
-        return JSONResponse(status_code=400, content={"error": "sections cannot be empty"})
+        return JSONResponse(
+            status_code=400, content={"error": "sections cannot be empty"}
+        )
 
     try:
         lyrics_map = plan_lyrics(
@@ -140,7 +143,9 @@ def compose_full(request: ComposeRequest):
         audio_sections.append(section_audio)
 
         section_end = current_start + section.duration
-        offsets.append({"name": section.name, "start": current_start, "end": section_end})
+        offsets.append(
+            {"name": section.name, "start": current_start, "end": section_end}
+        )
         current_start = section_end
         LOGGER.info(
             "Section '%s' processed in %.2f ms",
@@ -173,4 +178,3 @@ if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
     uvicorn.run(app, host="127.0.0.1", port=9010)
-

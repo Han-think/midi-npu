@@ -1,4 +1,5 @@
 """Utility functions for simple music theory operations used across the pipeline."""
+
 from __future__ import annotations
 
 import logging
@@ -92,4 +93,3 @@ def clamp_midi_range(note: int, low: int, high: int) -> int:
     while note > high:
         note -= 12
     return note
-

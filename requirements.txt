@@ -18,3 +18,10 @@ requests
 orjson
 pyyaml
 onnx
+ruff
+black
+mypy
+pytest
+httpx
+types-requests
+types-PyYAML

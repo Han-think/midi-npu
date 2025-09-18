@@ -1,4 +1,5 @@
 """Simple mastering utilities."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -22,4 +23,3 @@ def normalize_and_limit(
     limited = np.tanh(audio * drive)
     limited /= np.max(np.abs(limited)) + 1e-6
     return limited.astype(np.float32)
-

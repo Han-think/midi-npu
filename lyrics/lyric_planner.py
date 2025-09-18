@@ -1,4 +1,5 @@
 """Lyric planning utilities for the section-based pipeline."""
+
 from __future__ import annotations
 
 import json
@@ -74,7 +75,9 @@ def _fallback_lyrics(
         name = str(item.get("name", "section"))
         lines = []
         for idx in range(2):
-            template = templates[(idx + rng.randint(0, len(templates) - 1)) % len(templates)]
+            template = templates[
+                (idx + rng.randint(0, len(templates) - 1)) % len(templates)
+            ]
             adjective = rng.choice(style_tokens)
             lines.append(
                 template.format(adjective=adjective, section=name, key=key, bpm=bpm)
@@ -124,4 +127,3 @@ def plan_lyrics(
         results = _fallback_lyrics(base_style, key, bpm, sections, seed)
 
     return results
-
