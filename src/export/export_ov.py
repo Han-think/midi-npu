@@ -5,6 +5,24 @@ import subprocess
 import sys
 
 
+def _run(cmd: list[str]) -> None:
+    print("Running:", " ".join(cmd), flush=True)
+    proc = subprocess.run(cmd, text=True, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout)
+    if proc.stderr:
+        print(proc.stderr)
+    if proc.returncode != 0:
+        raise RuntimeError(f"exporter failed rc={proc.returncode}")
+
+
+def _find_xml(out: str) -> str | None:
+    xmls = glob.glob(os.path.join(out, "*.xml")) or glob.glob(
+        os.path.join(out, "**", "*.xml"), recursive=True
+    )
+    return xmls[0] if xmls else None
+
+
 def main(ckpt: str, out: str) -> None:
     if not os.path.exists(ckpt):
         raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
@@ -26,19 +44,25 @@ def main(ckpt: str, out: str) -> None:
         "--output",
         out,
     ]
-    print("Running:", " ".join(cmd), flush=True)
-    proc = subprocess.run(cmd, check=True, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout)
-    if proc.stderr:
-        print(proc.stderr)
 
-    xmls = glob.glob(os.path.join(out, "*.xml")) or glob.glob(
-        os.path.join(out, "**", "*.xml"), recursive=True
-    )
-    if not xmls:
-        raise RuntimeError(f"No XML produced under {out}. Export failed.")
-    print("Exported:", xmls[0], flush=True)
+    try:
+        _run(cmd)
+        xml = _find_xml(out)
+        if xml:
+            print("Exported:", xml)
+            return
+
+        task_idx = cmd.index("text-generation-with-past")
+        cmd[task_idx] = "text-generation"
+        _run(cmd)
+        xml = _find_xml(out)
+        if xml:
+            print("Exported:", xml)
+            return
+    except Exception as exc:
+        print("Exporter exception:", exc)
+
+    raise RuntimeError(f"No XML produced under {out}. Export failed.")
 
 
 if __name__ == "__main__":
