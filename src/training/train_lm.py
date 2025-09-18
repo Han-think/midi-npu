@@ -1,28 +1,22 @@
 import os, json, argparse, yaml, torch
+from torch.optim import AdamW
 from torch.utils.data import Dataset, DataLoader
-from transformers import GPT2Config, GPT2LMHeadModel, AdamW, get_cosine_schedule_with_warmup
-
+from transformers import GPT2Config, GPT2LMHeadModel
+from transformers.optimization import get_cosine_schedule_with_warmup
 
 class DS(Dataset):
     def __init__(self, path, seq=2048):
         self.items=[json.loads(l)['tokens'] for l in open(path,'r',encoding='utf-8')]
         self.seq=seq
-
-    def __len__(self):
-        return len(self.items)
-
+    def __len__(self): return len(self.items)
     def __getitem__(self,i):
         x=self.items[i][:self.seq]; x=x if len(x)>2 else x+[0,0]
-        import torch
         return torch.tensor(x[:-1]), torch.tensor(x[1:])
 
-
 def collate(b):
-    import torch
     x=[t[0] for t in b]; y=[t[1] for t in b]
     return (torch.nn.utils.rnn.pad_sequence(x, True, 0),
             torch.nn.utils.rnn.pad_sequence(y, True, 0))
-
 
 def main(cfgp):
     cfg=yaml.safe_load(open(cfgp,'r',encoding='utf-8'))
@@ -54,7 +48,6 @@ def main(cfgp):
         print(f'epoch {ep+1} loss={s/max(n,1):.4f}')
         model.save_pretrained(f'checkpoints/epoch{ep+1}')
     print('done')
-
 
 if __name__=='__main__':
     ap=argparse.ArgumentParser()
