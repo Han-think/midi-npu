@@ -1,17 +1,21 @@
+from __future__ import annotations
+
 import base64
 import glob
 import io
 import os
 import time
+from typing import List
 
 import pretty_midi as pm
 import soundfile as sf
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+
 from src.inference.ov_sampler import ov_generate, tokens_to_midi
 from src.render.sf2_renderer import render as render_sf2
 
-app = FastAPI(title="midi-npu (one-pipeline)", version="0.3.2")
+app = FastAPI(title="midi-npu", version="0.4.0")
 
 
 class Section(BaseModel):
@@ -23,7 +27,7 @@ class ComposeReq(BaseModel):
     base_style: str = "rock"
     bpm: int = 120
     key: str = "C"
-    sections: list[Section]
+    sections: List[Section]
     seed: int | None = 42
     with_vocal: bool = False
     max_tokens: int = 512
@@ -34,7 +38,7 @@ class MGReq(BaseModel):
     duration: int = 8
 
 
-def _find_xml():
+def _find_xml() -> str:
     xml = os.environ.get("OV_XML_PATH") or "exports/gpt_ov/openvino_model.xml"
     if os.path.exists(xml):
         return xml
@@ -50,7 +54,7 @@ def health():
         import openvino as ov
 
         return {"status": "ok", "devices": ov.Core().available_devices}
-    except Exception as e:  # pragma: no cover - health fallback path
+    except Exception as e:  # pragma: no cover
         return {"status": "degraded", "error": str(e)}
 
 
@@ -59,11 +63,11 @@ def _fake_midi(req: ComposeReq) -> pm.PrettyMIDI:
     inst = pm.Instrument(program=0, name="fake")
     pattern = [60, 64, 67, 72, 67, 64, 60]
     t = 0.0
-    for section in req.sections:
-        step = max(0.2, section.duration / max(1, len(pattern)))
-        for pitch in pattern:
+    for s in req.sections:
+        step = max(0.2, s.duration / max(1, len(pattern)))
+        for p in pattern:
             inst.notes.append(
-                pm.Note(velocity=80, pitch=pitch, start=t, end=t + step * 0.9)
+                pm.Note(velocity=80, pitch=p, start=t, end=t + step * 0.9)
             )
             t += step
     m.instruments.append(inst)
@@ -90,30 +94,30 @@ def compose(req: ComposeReq):
         toks, vc = ov_generate(xml, vocab, max_tokens=req.max_tokens)
         midi = tokens_to_midi(toks, vc)
 
+    total = sum(s.duration for s in req.sections)
     cur = 0.0
     base = pm.PrettyMIDI()
     dur = max(1e-3, midi.get_end_time())
     offsets = []
-    for section in req.sections:
-        scale = section.duration / dur
+    for s in req.sections:
+        scale = s.duration / dur
         for inst in midi.instruments:
             ni = pm.Instrument(
                 program=inst.program, is_drum=inst.is_drum, name=inst.name
             )
-            for note in inst.notes:
+            for n in inst.notes:
                 ni.notes.append(
                     pm.Note(
-                        velocity=note.velocity,
-                        pitch=note.pitch,
-                        start=note.start * scale + cur,
-                        end=note.end * scale + cur,
+                        velocity=n.velocity,
+                        pitch=n.pitch,
+                        start=n.start * scale + cur,
+                        end=n.end * scale + cur,
                     )
                 )
             base.instruments.append(ni)
-        offsets.append(
-            {"name": section.name, "start": cur, "end": cur + section.duration}
-        )
-        cur += section.duration
+        offsets.append({"name": s.name, "start": cur, "end": cur + s.duration})
+        cur += s.duration
+    _ = total  # keep lints calm
 
     audio = render_sf2(base, sr=32000)
     buf = io.BytesIO()

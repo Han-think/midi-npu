@@ -1,4 +1,5 @@
-import argparse
+from __future__ import annotations
+
 import glob
 import os
 import subprocess
@@ -8,10 +9,8 @@ import sys
 def _run(cmd: list[str]) -> None:
     print("Running:", " ".join(cmd), flush=True)
     proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout)
-    if proc.stderr:
-        print(proc.stderr)
+    print(proc.stdout)
+    print(proc.stderr)
     if proc.returncode != 0:
         raise RuntimeError(f"exporter failed rc={proc.returncode}")
 
@@ -26,7 +25,6 @@ def _find_xml(out: str) -> str | None:
 def main(ckpt: str, out: str) -> None:
     if not os.path.exists(ckpt):
         raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
-
     os.makedirs(out, exist_ok=True)
 
     cmd = [
@@ -44,30 +42,30 @@ def main(ckpt: str, out: str) -> None:
         "--output",
         out,
     ]
-
     try:
         _run(cmd)
         xml = _find_xml(out)
         if xml:
             print("Exported:", xml)
             return
-
-        task_idx = cmd.index("text-generation-with-past")
-        cmd[task_idx] = "text-generation"
+        # retry plain
+        cmd[cmd.index("text-generation-with-past")] = "text-generation"
         _run(cmd)
         xml = _find_xml(out)
         if xml:
             print("Exported:", xml)
             return
-    except Exception as exc:
-        print("Exporter exception:", exc)
+    except Exception as e:  # pragma: no cover
+        print("Exporter exception:", e)
 
     raise RuntimeError(f"No XML produced under {out}. Export failed.")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", required=True)
-    parser.add_argument("--out", required=True)
-    args = parser.parse_args()
-    main(args.ckpt, args.out)
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--out", required=True)
+    a = ap.parse_args()
+    main(a.ckpt, a.out)
