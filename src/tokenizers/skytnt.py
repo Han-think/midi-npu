@@ -1,66 +1,38 @@
-"""Lightweight REMI-style tokenizer utilities."""
-from __future__ import annotations
-
-from collections import Counter
-from typing import Iterable, List, Sequence
-
 import pretty_midi as pm
 
-
-TIME_SIG_TOKEN = "TIME_SIG_4_4"
-
-
-def section_prefix(name: str, bpm: int, key: str) -> list[str]:
-    """Return the section context tokens that prefix every sample."""
-    return [f"<SECTION={name}>", f"<BPM={bpm}>", f"<KEY={key}>", TIME_SIG_TOKEN]
+DRUM_CH = 9  # MIDI ch10 (0-index)
 
 
-def midi_to_events(midi: pm.PrettyMIDI) -> list[str]:
-    """Convert a PrettyMIDI object into a flat list of REMI-like events."""
-    events: list[str] = []
-    tempos = midi.get_tempo_changes()[1]
-    tempo = int(tempos[0]) if len(tempos) > 0 else 120
-    events.append(f"TEMPO_{tempo}")
-
-    duration = midi.get_end_time()
-    bar_duration = 60.0 / tempo * 4
-    current_bar = 0
-    current_time = 0.0
-    while current_time < duration:
-        events.append(f"BAR_{current_bar}")
-        current_time += bar_duration
-        current_bar += 1
-
-    for instrument in midi.instruments:
-        program = 128 if instrument.is_drum else instrument.program
-        channel = 9 if instrument.is_drum else 0
-        events.extend([f"INST_{program}", f"CH_{channel}"])
-        for note in instrument.notes:
-            duration_ticks = max(int((note.end - note.start) * 960), 1)
-            events.extend(
-                [
-                    f"NOTE_{note.pitch}",
-                    f"DUR_{duration_ticks}",
-                    f"VEL_{int(note.velocity)}",
-                ]
-            )
-        events.append("INST_END")
-
-    return events
+def section_prefix(name: str, bpm: int, key: str):
+    return [f'<SECTION={name}>', f'<BPM={bpm}>', f'<KEY={key}>', 'TIME_SIG_4_4']
 
 
-def build_vocab(samples: Iterable[Sequence[str]]) -> dict[str, int]:
-    """Build a simple vocabulary from the tokenized samples."""
-    counter: Counter[str] = Counter()
-    for sample in samples:
-        counter.update(sample)
+def midi_to_events(m: pm.PrettyMIDI):
+    ev = []
+    tempi = m.get_tempo_changes()[1]
+    tempo = int(tempi[0]) if len(tempi) > 0 else 120
+    ev.append(f'TEMPO_{tempo}')
+    # rough bars
+    dur = m.get_end_time(); bar = 60.0/tempo*4; t=0.0; b=0
+    while t < dur: ev.append(f'BAR_{b}'); t += bar; b += 1
+    # tracks
+    for inst in m.instruments:
+        prog = 128 if inst.is_drum else inst.program
+        ch   = DRUM_CH if inst.is_drum else 0
+        ev += [f'INST_{prog}', f'CH_{ch}']
+        for n in inst.notes:
+            ev += [f'NOTE_{n.pitch}', f'DUR_{max(int((n.end-n.start)*960),1)}', f'VEL_{int(n.velocity)}']
+        ev.append('INST_END')
+    return ev
 
-    tokens: List[str] = ["<pad>", "<bos>", "<eos>", "<unk>"]
-    tokens.extend(token for token, _ in counter.items())
-    return {token: idx for idx, token in enumerate(tokens)}
+
+def build_vocab(samples):
+    from collections import Counter
+    c = Counter(); [c.update(s) for s in samples]
+    toks = ['<pad>','<bos>','<eos>','<unk>'] + [t for t,f in c.items() if f>=1]
+    return {t:i for i,t in enumerate(toks)}
 
 
-def events_to_ids(events: Sequence[str], vocab: dict[str, int]) -> list[int]:
-    """Map events to vocabulary indices using an <unk> fallback."""
-    unk = vocab.get("<unk>", 0)
-    return [vocab.get(event, unk) for event in events]
+def events_to_ids(events, vocab):
+    unk = vocab.get('<unk>', 0)
+    return [vocab.get(t, unk) for t in events]
